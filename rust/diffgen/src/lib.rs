@@ -369,7 +369,10 @@ pub fn adversarial_random(rng: &mut Rng) -> Case {
         Alpha::Std => &base64_core::STANDARD_ENCODE,
         Alpha::Url => &base64_core::URL_SAFE_ENCODE,
     };
-    let mut enc = base64_core::encode_alloc(&raw, table).expect("small input");
+    let mut enc = match base64_core::encode_alloc(&raw, table) {
+        Ok(v) => v,
+        Err(_) => unreachable!("small input cannot overflow"),
+    };
     if !enc.is_empty() {
         match rng.below(3) {
             0 => {

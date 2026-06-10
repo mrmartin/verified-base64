@@ -2,6 +2,15 @@ name = "verified"
 version = "0.1.0"
 defaultTargets = ["Verified", "speccli"]
 
+# The Aeneas Lean library (Result monad, Std model, proof tactics) — pinned.
+# Pulls mathlib transitively; only Verified/Extracted and Verified/Theorems
+# import it. The spec layer (Spec.lean, Main.lean) stays core-Lean-only.
+[[require]]
+name = "aeneas"
+git = "https://github.com/AeneasVerif/aeneas"
+rev = "5138c03bd39e870abe1ad3a572865cf8c15f43d6"
+subDir = "backends/lean"
+
 [[lean_lib]]
 name = "Verified"
 

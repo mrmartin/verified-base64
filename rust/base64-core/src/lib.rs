@@ -99,7 +99,7 @@ pub static URL_SAFE_DECODE: [u8; 256] = [
 // matching the field order of upstream's struct variant (post-PR-#293).
 // ---------------------------------------------------------------------------
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum DecodeError {
     /// An invalid byte was found in the input (absolute offset, byte).
     InvalidByte(usize, u8),
@@ -112,7 +112,7 @@ pub enum DecodeError {
     InvalidPadding,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum EncodeError {
     /// The encoded length would overflow `usize`.
     LengthOverflow,
@@ -349,6 +349,87 @@ fn decode_chunk_4(
 /// the iterator loop rewritten as an index loop, the output written via
 /// absolute indexing, and `DecodeMetadata` (decoded length + padding offset)
 /// reduced to the decoded length (PORT.md).
+/// State of the left-to-right scan of the final (≤ 4 byte) input group.
+///
+/// Aeneas-shape note (PORT.md row 14): upstream scans with a `for` loop whose
+/// body exits early via `return`/`continue` and writes `morsels: [u8; 4]` at a
+/// dynamic index — three constructs Aeneas's loop translation rejects (the
+/// loop fixed-point computation fails). Since the suffix has at most 4 bytes,
+/// the scan is unrolled: `suffix_scan_step` is the loop body as a pure state
+/// transformer (sticky error instead of early return; four scalars instead of
+/// the indexed array), applied up to four times in `decode_suffix`. The
+/// resulting state after k steps is identical to upstream's after k
+/// iterations.
+struct SuffixScan {
+    morsels_in_leftover: usize,
+    padding_bytes_count: usize,
+    /// offset from input_index; meaningful when padding_bytes_count > 0
+    first_padding_offset: usize,
+    last_symbol: u8,
+    last_symbol_value: u8,
+    morsel0: u8,
+    morsel1: u8,
+    morsel2: u8,
+    morsel3: u8,
+    err: Option<DecodeError>,
+}
+
+/// One iteration of upstream's suffix scan loop
+/// (upstream: src/engine/general_purpose/decode_suffix.rs:32-88).
+fn suffix_scan_step(
+    st: SuffixScan,
+    input_index: usize,
+    leftover_index: usize,
+    b: u8,
+    decode_table: &[u8; 256],
+) -> SuffixScan {
+    let mut st = st;
+    if st.err.is_some() {
+        // a previous step errored: upstream would already have returned
+        return st;
+    }
+
+    if b == PAD_BYTE {
+        // '=' padding. Padding after zero or one non-padding characters in
+        // the current quad is invalid (upstream error case #2).
+        if leftover_index < 2 {
+            let bad_padding_index = input_index + leftover_index;
+            st.err = Some(DecodeError::InvalidByte(bad_padding_index, b));
+        } else {
+            if st.padding_bytes_count == 0 {
+                st.first_padding_offset = leftover_index;
+            }
+            st.padding_bytes_count += 1;
+        }
+    } else if st.padding_bytes_count > 0 {
+        // Non-padding after padding (upstream error case #1): report at the
+        // first padding byte's offset.
+        st.err = Some(DecodeError::InvalidByte(
+            input_index + st.first_padding_offset,
+            PAD_BYTE,
+        ));
+    } else {
+        let morsel = decode_table[b as usize];
+        if morsel == INVALID_VALUE {
+            st.err = Some(DecodeError::InvalidByte(input_index + leftover_index, b));
+        } else {
+            st.last_symbol = b;
+            st.last_symbol_value = morsel;
+            if st.morsels_in_leftover == 0 {
+                st.morsel0 = morsel;
+            } else if st.morsels_in_leftover == 1 {
+                st.morsel1 = morsel;
+            } else if st.morsels_in_leftover == 2 {
+                st.morsel2 = morsel;
+            } else {
+                st.morsel3 = morsel;
+            }
+            st.morsels_in_leftover += 1;
+        }
+    }
+    st
+}
+
 fn decode_suffix(
     input: &[u8],
     input_index: usize,
@@ -358,57 +439,47 @@ fn decode_suffix(
 ) -> Result<usize, DecodeError> {
     let mut output_index = output_index_start;
 
-    // Decode any leftovers that might not be a complete input chunk of 4 bytes.
-    let mut morsels_in_leftover: usize = 0;
-    let mut padding_bytes_count: usize = 0;
-    // offset from input_index
-    let mut first_padding_offset: usize = 0;
-    let mut last_symbol: u8 = 0;
-    let mut last_symbol_value: u8 = 0;
-    let mut morsels = [0u8; 4];
+    // Decode any leftovers that might not be a complete input chunk of 4
+    // bytes. Callers guarantee input.len() - input_index <= 4 (upstream
+    // debug_asserts this); the scan is unrolled to four steps (see
+    // SuffixScan).
+    let mut st = SuffixScan {
+        morsels_in_leftover: 0,
+        padding_bytes_count: 0,
+        first_padding_offset: 0,
+        last_symbol: 0,
+        last_symbol_value: 0,
+        morsel0: 0,
+        morsel1: 0,
+        morsel2: 0,
+        morsel3: 0,
+        err: None,
+    };
+    let len = input.len();
+    if input_index < len {
+        st = suffix_scan_step(st, input_index, 0, input[input_index], decode_table);
+    }
+    if input_index + 1 < len {
+        st = suffix_scan_step(st, input_index, 1, input[input_index + 1], decode_table);
+    }
+    if input_index + 2 < len {
+        st = suffix_scan_step(st, input_index, 2, input[input_index + 2], decode_table);
+    }
+    if input_index + 3 < len {
+        st = suffix_scan_step(st, input_index, 3, input[input_index + 3], decode_table);
+    }
 
-    let mut leftover_index: usize = 0;
-    while input_index + leftover_index < input.len() {
-        let b = input[input_index + leftover_index];
+    let morsels_in_leftover = st.morsels_in_leftover;
+    let padding_bytes_count = st.padding_bytes_count;
+    let last_symbol = st.last_symbol;
+    let last_symbol_value = st.last_symbol_value;
+    let morsel0 = st.morsel0;
+    let morsel1 = st.morsel1;
+    let morsel2 = st.morsel2;
+    let morsel3 = st.morsel3;
 
-        // '=' padding
-        if b == PAD_BYTE {
-            // Padding after zero or one non-padding characters in the current
-            // quad is invalid (upstream error case #2).
-            if leftover_index < 2 {
-                let bad_padding_index = input_index + leftover_index;
-                return Err(DecodeError::InvalidByte(bad_padding_index, b));
-            }
-
-            if padding_bytes_count == 0 {
-                first_padding_offset = leftover_index;
-            }
-
-            padding_bytes_count += 1;
-            leftover_index += 1;
-            continue;
-        }
-
-        // Non-padding after padding (upstream error case #1): report at the
-        // first padding byte's offset.
-        if padding_bytes_count > 0 {
-            return Err(DecodeError::InvalidByte(
-                input_index + first_padding_offset,
-                PAD_BYTE,
-            ));
-        }
-
-        last_symbol = b;
-
-        let morsel = decode_table[b as usize];
-        last_symbol_value = morsel;
-        if morsel == INVALID_VALUE {
-            return Err(DecodeError::InvalidByte(input_index + leftover_index, b));
-        }
-
-        morsels[morsels_in_leftover] = morsel;
-        morsels_in_leftover += 1;
-        leftover_index += 1;
+    if let Some(e) = st.err {
+        return Err(e);
     }
 
     // A single trailing symbol (after the above checks) is an invalid length.
@@ -424,10 +495,10 @@ fn decode_suffix(
 
     let leftover_bytes_to_append = morsels_in_leftover * 6 / 8;
     // Put the up to 24 useful bits as the high bits of a u32.
-    let mut leftover_num = ((morsels[0] as u32) << 26)
-        | ((morsels[1] as u32) << 20)
-        | ((morsels[2] as u32) << 14)
-        | ((morsels[3] as u32) << 8);
+    let mut leftover_num = ((morsel0 as u32) << 26)
+        | ((morsel1 as u32) << 20)
+        | ((morsel2 as u32) << 14)
+        | ((morsel3 as u32) << 8);
 
     // If there are bits set outside the bits we care about, the last symbol
     // encodes trailing bits that would not be included in the output: reject
@@ -468,14 +539,35 @@ pub fn decode_slice(
     decode_table: &[u8; 256],
 ) -> Result<usize, DecodeError> {
     let rem = input.len() % 4;
-    let input_complete_nonterminal_quads_len = complete_quads_len(input, rem, decode_table)?;
+    // (match instead of `?`: the Try-operator desugaring extracts to an
+    // axiomatized external — PORT.md row 15)
+    let input_complete_nonterminal_quads_len =
+        match complete_quads_len(input, rem, decode_table) {
+            Ok(n) => n,
+            Err(e) => return Err(e),
+        };
 
+    // Aeneas-shape note (PORT.md row 15): upstream's loop body propagates the
+    // chunk error with `?` (an early function exit inside the loop, which the
+    // Aeneas loop translation does not support); the error is carried in
+    // `quad_err` instead and returned after the loop — observationally
+    // identical, the loop stops at the first error.
+    let mut quad_err: Option<DecodeError> = None;
     let mut input_index = 0;
     let mut output_index = 0;
-    while input_index < input_complete_nonterminal_quads_len {
-        decode_chunk_4(input, input_index, output, output_index, decode_table)?;
-        input_index += 4;
-        output_index += 3;
+    while quad_err.is_none() && input_index < input_complete_nonterminal_quads_len {
+        match decode_chunk_4(input, input_index, output, output_index, decode_table) {
+            Ok(()) => {
+                input_index += 4;
+                output_index += 3;
+            }
+            Err(e) => {
+                quad_err = Some(e);
+            }
+        }
+    }
+    if let Some(e) = quad_err {
+        return Err(e);
     }
 
     decode_suffix(input, input_index, output, output_index, decode_table)
@@ -496,7 +588,11 @@ pub fn decode_alloc(input: &[u8], decode_table: &[u8; 256]) -> Result<Vec<u8>, D
         i += 1;
     }
 
-    let len = decode_slice(input, &mut buf, decode_table)?;
+    // (match instead of `?` — see decode_slice)
+    let len = match decode_slice(input, &mut buf, decode_table) {
+        Ok(n) => n,
+        Err(e) => return Err(e),
+    };
 
     let mut out: Vec<u8> = Vec::new();
     let mut j = 0;

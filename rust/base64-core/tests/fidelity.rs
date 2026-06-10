@@ -11,6 +11,22 @@ use base64::Engine;
 
 type CoreResult = Result<Vec<u8>, base64_core::DecodeError>;
 
+/// base64-core's enums deliberately don't derive Debug (the derive drags
+/// `core::fmt` axioms into the Lean extraction), so failure messages are
+/// rendered manually here.
+fn fmt_result(r: &CoreResult) -> String {
+    use base64_core::DecodeError as C;
+    match r {
+        Ok(v) => format!("Ok({v:02x?})"),
+        Err(C::InvalidByte(o, b)) => format!("Err(InvalidByte({o}, {b}))"),
+        Err(C::InvalidLength(l)) => format!("Err(InvalidLength({l}))"),
+        Err(C::InvalidLastSymbol(o, s, v)) => {
+            format!("Err(InvalidLastSymbol({o}, {s}, {v}))")
+        }
+        Err(C::InvalidPadding) => "Err(InvalidPadding)".to_string(),
+    }
+}
+
 fn map_upstream_err(e: base64::DecodeError) -> base64_core::DecodeError {
     use base64::DecodeError as U;
     use base64_core::DecodeError as C;
@@ -49,7 +65,10 @@ fn pairs() -> [Pair; 2] {
 
 fn check_encode(p: &Pair, input: &[u8]) {
     let upstream = p.engine.encode(input);
-    let core = base64_core::encode_alloc(input, p.enc).expect("no overflow on test sizes");
+    let core = match base64_core::encode_alloc(input, p.enc) {
+        Ok(v) => v,
+        Err(_) => panic!("unexpected length overflow on test-size input"),
+    };
     assert_eq!(
         upstream.as_bytes(),
         core.as_slice(),
@@ -60,7 +79,12 @@ fn check_encode(p: &Pair, input: &[u8]) {
 fn check_decode(p: &Pair, input: &[u8]) {
     let upstream: CoreResult = p.engine.decode(input).map_err(map_upstream_err);
     let core = base64_core::decode_alloc(input, p.dec);
-    assert_eq!(upstream, core, "decode mismatch on input {input:?}");
+    assert!(
+        upstream == core,
+        "decode mismatch on input {input:?}: upstream={} core={}",
+        fmt_result(&upstream),
+        fmt_result(&core)
+    );
 }
 
 #[test]
@@ -83,7 +107,10 @@ fn rfc4648_vectors() {
     // and the canonical RFC examples through the standard pair only
     let p = &pairs()[0];
     for (plain, encoded) in vectors {
-        let core = base64_core::encode_alloc(plain, p.enc).unwrap();
+        let core = match base64_core::encode_alloc(plain, p.enc) {
+            Ok(v) => v,
+            Err(_) => panic!("unexpected length overflow"),
+        };
         assert_eq!(core, encoded.as_bytes());
     }
 }
