@@ -129,10 +129,15 @@ theorem t2_canonical_inverse (a : Alpha) (s : Slice Std.U8)
 
 For both RFC 4648 alphabets, on **every** input without exception, the
 extracted port: never panics and always terminates (T3, and the `False` rows
-of T4's predicates); returns exactly what the RFC spec returns, including
-which error and its exact payload (T4); decode inverts encode (T1); encode
-inverts decode on exactly the canonical strings (T2, with S2 pinning
-"canonical" = "is an encoding").
+of T4's predicates); decode inverts encode (T1); encode inverts decode on
+exactly the canonical strings (T2, with S2 pinning "canonical" = "is an
+encoding"). T4 itself is **two guarantees** (C1 amendment): (a) *RFC 4648
+conformance* on the accept/reject boundary and all decoded payloads — the
+accepted set and returned bytes are the RFC's, strictly read; and (b)
+*bit-exact agreement with rust-base64's error reporting* on rejection —
+which error, at which offset, with which payload. The RFC has no error
+model; error identity is upstream-conformance (the drop-in-replacement
+guarantee), transcribed as SPEC.md Q1–Q6.
 
 **Not claimed**: anything about SIMD paths, non-strict configurations,
 streaming APIs, or timing; the port↔upstream gap is closed empirically
