@@ -1,0 +1,10 @@
+[package]
+name = "diffgen"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Shared pieces of the differential harness: deterministic RNG, input streams, hex codec, outcome/error model. Zero dependencies."
+publish = false
+
+[dependencies]
+base64-core = { path = "../base64-core" }

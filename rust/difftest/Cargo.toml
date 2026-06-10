@@ -1,0 +1,12 @@
+[package]
+name = "difftest"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Three-way differential harness: (A) vendored upstream base64 crate, (B) base64-core port, (C) Lean spec executable."
+publish = false
+
+[dependencies]
+base64 = { path = "../../upstream/rust-base64" }
+base64-core = { path = "../base64-core" }
+diffgen = { path = "../diffgen" }

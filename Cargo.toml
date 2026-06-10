@@ -8,6 +8,9 @@ resolver = "2"
 members = [
     "upstream/rust-base64",
     "rust/base64-core",
+    "rust/diffgen",
+    "rust/difftest",
+    "rust/cratesio-xcheck",
 ]
 
 # Hoisted from upstream/rust-base64/Cargo.toml (profiles are workspace-root-only).

@@ -177,10 +177,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "base64"
+version = "0.22.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
+
+[[package]]
 name = "base64-core"
 version = "0.1.0"
 dependencies = [
- "base64",
+ "base64 0.22.1",
 ]
 
 [[package]]
@@ -302,6 +308,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cratesio-xcheck"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "base64-core",
+ "diffgen",
+]
+
+[[package]]
 name = "criterion"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -367,6 +382,22 @@ name = "crunchy"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "43da5946c66ffcc7745f48db692ffbb10a83bfe0afd96235c5c2a4fb23994929"
+
+[[package]]
+name = "diffgen"
+version = "0.1.0"
+dependencies = [
+ "base64-core",
+]
+
+[[package]]
+name = "difftest"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "base64-core",
+ "diffgen",
+]
 
 [[package]]
 name = "either"

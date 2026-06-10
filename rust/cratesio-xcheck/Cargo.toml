@@ -1,0 +1,13 @@
+[package]
+name = "cratesio-xcheck"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Cross-check: the published crates.io base64 0.22.1 agrees with the base64-core port on the same seeded streams. Together with difftest's A<->B pairing, this certifies vendored fork == published artifact on the tested surface."
+publish = false
+
+[dependencies]
+# the actual artifact people download — locked exactly
+base64 = "=0.22.1"
+base64-core = { path = "../base64-core" }
+diffgen = { path = "../diffgen" }
