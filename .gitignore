@@ -11,3 +11,9 @@ main.rs
 # `perf record` files
 /*perf.data*
 /tmp
+
+# Lean / lake
+lean/.lake/
+
+# local session config
+/.claude/

@@ -177,6 +177,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "base64-core"
+version = "0.1.0"
+dependencies = [
+ "base64",
+]
+
+[[package]]
 name = "bitflags"
 version = "1.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
