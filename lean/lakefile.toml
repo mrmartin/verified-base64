@@ -1,0 +1,10 @@
+name = "verified"
+version = "0.1.0"
+defaultTargets = ["Verified", "speccli"]
+
+[[lean_lib]]
+name = "Verified"
+
+[[lean_exe]]
+name = "speccli"
+root = "Verified.Main"
