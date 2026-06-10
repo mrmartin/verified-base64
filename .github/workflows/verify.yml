@@ -1,0 +1,47 @@
+name: verify
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install elan (pinned by lean/lean-toolchain)
+        run: |
+          curl -sSfL https://github.com/leanprover/elan/releases/latest/download/elan-x86_64-unknown-linux-gnu.tar.gz | tar xz
+          ./elan-init -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      - name: Cache lake build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.elan
+            lean/.lake
+          key: lake-${{ hashFiles('lean/lean-toolchain', 'lean/lake-manifest.json') }}-${{ hashFiles('lean/**/*.lean') }}
+          restore-keys: |
+            lake-${{ hashFiles('lean/lean-toolchain', 'lean/lake-manifest.json') }}-
+
+      - name: Guards (no sorry / admit / native_decide / stray axiom)
+        run: bash scripts/guard.sh
+
+      - name: lake build (spec + #guard vectors + speccli + theorems when present)
+        working-directory: lean
+        run: |
+          if grep -q 'mathlib' lake-manifest.json 2>/dev/null; then lake exe cache get || true; fi
+          lake build
+
+      - name: Rust tests (port fidelity, table fidelity, upstream suite)
+        run: cargo test --workspace --release 2>&1 | tail -40
+
+      - name: Differential smoke (corpus + 100k, three-way)
+        run: |
+          cargo build --release -p difftest
+          ./target/release/difftest --spec-exe lean/.lake/build/bin/speccli \
+            --seed "$(date +%Y%m%d)" --count 100000 --workers 4
