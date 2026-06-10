@@ -1,0 +1,65 @@
+name: difftest-nightly
+
+on:
+  schedule:
+    - cron: "20 2 * * *"
+  workflow_dispatch:
+
+jobs:
+  difftest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install elan (pinned by lean/lean-toolchain)
+        run: |
+          curl -sSfL https://github.com/leanprover/elan/releases/latest/download/elan-x86_64-unknown-linux-gnu.tar.gz | tar xz
+          ./elan-init -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      - name: Cache lake build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.elan
+            lean/.lake
+          key: lake-${{ hashFiles('lean/lean-toolchain', 'lean/lake-manifest.json') }}-${{ hashFiles('lean/**/*.lean') }}
+          restore-keys: |
+            lake-${{ hashFiles('lean/lean-toolchain', 'lean/lake-manifest.json') }}-
+
+      - name: Build speccli
+        working-directory: lean
+        run: |
+          if grep -q 'mathlib' lake-manifest.json 2>/dev/null; then lake exe cache get || true; fi
+          lake build speccli
+
+      - name: Build harness
+        run: cargo build --release -p difftest -p cratesio-xcheck
+
+      - name: Three-way differential, 10^7 inputs (seed = date)
+        run: |
+          ./target/release/difftest --spec-exe lean/.lake/build/bin/speccli \
+            --seed "$(date +%Y%m%d)" --count 10000000 --workers 4 \
+            --replay-out difftest-replays.jsonl
+
+      - name: crates.io cross-check, 10^6 inputs
+        run: ./target/release/cratesio-xcheck --seed "$(date +%Y%m%d)" --count 1000000
+
+      - name: Upload replay artifact on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: difftest-replays
+          path: difftest-replays.jsonl
+          if-no-files-found: ignore
+
+      - name: Open issue on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue create \
+            --title "Nightly difftest divergence ($(date +%Y-%m-%d))" \
+            --body "The nightly differential run found divergences. Download the difftest-replays artifact from run ${{ github.run_id }} and triage with \`difftest --replay\`. Seed: $(date +%Y%m%d)." \
+            || true
