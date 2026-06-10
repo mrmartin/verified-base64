@@ -43,6 +43,26 @@ for every proving session, human-attended or not.
    extracted loop shape resists unrolling, escalate to the human for an
    invariant statement rather than burning attempts.
 
+## Axiom hygiene (per work item, not per final theorem)
+
+8a. **Every work item passes the axiom audit before it is marked green:**
+    `bash scripts/wi_audit.sh <FullyQualifiedName>` — only
+    `propext, Classical.choice, Quot.sound` are acceptable. `sorryAx` in the
+    output means the proof leans on a sorry'd declaration; the WI is NOT
+    green, whatever `lake build` says. Rationale (C1 review): a poisoned base
+    lemma at WI-05 would otherwise be discovered only at the final audit,
+    after days of unattended compute built on top of it.
+8b. **Forbidden declarations** — the known sorry-holes of the pinned Aeneas
+    library. Never apply, cite, or rely on:
+    - `Aeneas.Std.core.slice.Slice.get_unchecked` (def by sorry)
+    - `Aeneas.Std.core.slice.Slice.get_unchecked_SliceIndexUsizeSlice_spec`
+      (**an `@[step]` lemma** — `step`/`step*` could select it silently;
+      the audit in 8a is the mechanical backstop)
+    - `Aeneas.Std.core.str.iter.IteratorChars.collect` (def by sorry)
+    Our port forbids `unsafe` and uses no string iterators, so no legitimate
+    goal needs these. If one ever appears necessary, the extraction is wrong
+    — stop and escalate; do not reprove around it silently.
+
 ## Logging (mandatory — feeds the public cost ledger)
 
 9. Every attempt appends one JSON line to `prover/log/<UTC-date>-<target>.jsonl`:

@@ -16,8 +16,19 @@ differentially fuzzed against the upstream binary.
 - **T1 round-trip**: `decode (encode b) = ok b` for all byte arrays.
 - **T2 canonical inverse**: `encode (decode s) = s` for all valid canonical strings.
 - **T3 totality / no-panic**: `decode` and `encode` never panic, for *all* inputs.
-- **T4 RFC conformance**: the extracted implementation equals the executable
-  RFC 4648 spec function, pointwise.
+- **T4 conformance** — two guarantees in one pointwise equality:
+  1. **RFC 4648 conformance** on the accept/reject boundary and all decoded
+     payloads: the set of accepted strings and the bytes returned are exactly
+     the RFC's (strict reading: §4 padding required, §3.5 canonicity enforced).
+  2. **Bit-exact agreement with rust-base64's error reporting** on rejection:
+     *which* error, at *which* offset, with *which* payload — the RFC has no
+     error model, so error identity is upstream-conformance (the drop-in
+     guarantee), transcribed in the spec and marked `[precedence]` (SPEC.md
+     Q1–Q6).
+
+Across all of T1–T4 there is exactly **one hypothesis**: T1 assumes the
+encoded length fits in `usize` (inputs below ~13.8 EB). Everything else is
+hypothesis-free, for every input without exception.
 
 ## Repository layout
 
@@ -28,6 +39,19 @@ rust/difftest/          differential harness: upstream ↔ port ↔ Lean spec ex
 lean/                   Lean 4 package: RFC 4648 spec, extracted code, theorems
 prover/                 autonomous proving loop: constitution, logs, cost ledger
 ```
+
+## Trust notes (to be expanded into the full TCB section)
+
+- **`EncodeError::LengthOverflow` is proof-only territory.** Upstream panics
+  when the encoded length overflows `usize`; the port returns `Err` there so
+  the no-panic theorem is unconditional (PORT.md row 4). No fuzzer can reach
+  that branch (it needs a ~13.8 EB input), so this single behavior is the one
+  place where port ≡ upstream rests on neither proof nor differential
+  testing — only on the documented one-line deviation.
+- The error-identity half of T4 (which error/offset/payload fires first on
+  multi-defect inputs) is **upstream-conformance, not RFC content** — RFC
+  4648 defines validity, not an error model. Every such transcription choice
+  is marked in SPEC.md (Q1–Q6).
 
 ## Pinned versions
 

@@ -68,6 +68,14 @@ def DecodeAgrees
   | .ok (.Err e), .error e' => decodeErrToSpec e = e'
   | _, _ => False
 
+/-- Companion to T1/T2's inner re-slicing (C1 review note 1): the slice those
+statements quantify over always exists — `Vec` and `Slice` are the same
+length-bounded-list subtype, so any vector's contents re-slice directly. The
+`∀ es, es.val = e.val → …` form is therefore never vacuous. -/
+theorem exists_slice_of_vec (v : alloc.vec.Vec Std.U8) :
+    ∃ es : Slice Std.U8, es.val = v.val :=
+  ⟨⟨v.val, v.property⟩, rfl⟩
+
 /-- What T4-encode asserts: the extracted computation terminates without
 panic, returning the spec's encoding whenever the encoded length fits in
 `usize`, and `LengthOverflow` otherwise (where upstream would panic —
